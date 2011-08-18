@@ -6,7 +6,7 @@
 # Dustributed under GNU GPL v2 or higher
 
 use vars qw($VERSION %IRSSI);
-$VERSION = "20110804";
+$VERSION = "20110814";
 %IRSSI = (
     authors     => "savrus",
     contact     => "http://code.google.com/p/xdccget",
@@ -18,15 +18,16 @@ $VERSION = "20110804";
 );
 
 use Irssi;
-use vars qw(@g_queue $g_nick $g_gen $g_server $g_witem $g_timer $g_file);
+use vars qw(@g_queue $g_nick $g_gen @g_gen_queue $g_server $g_witem $g_timer $g_file);
 
 sub show_help() {
     my $help="xdccget $VERSION
 /xdccget queue Nickname  ...
     Queue the specified packs of the server 'Nickname'
-/xdccget gen path_to_generator
+/xdccget gen path_to_generator ...
     Executes external generator to receive server Nickname and packs, then queues them.
     Generator is also executed each time xdccget suspects of packlist shuffle.
+    More than one generator can be given, in this case they form a queue.
 /xdccget help
     Display this help
 ";
@@ -75,6 +76,7 @@ sub set_timer {
         print CLIENTCRAP "XDCCGET CRITICAL: set timer while timer is activated. Keep old timer, set_timer is ignored";
         return;
     }
+    print CLIENTCRAP "XDCCGET DEBUG: set timeout $timeout msec for '$handler'";
     $g_timer=Irssi::timeout_add($timeout, $handler, undef);
 }
 
@@ -114,12 +116,16 @@ sub cmd_xdccget {
     elsif ($arg[0] eq 'help') {
         show_help();
     }
+    elsif ($arg[0]) {
+        print CLIENTCRAP "xdccget: unknown command '$arg[0]'";
+    }
     else {
         print CLIENTCRAP "xdccget: $g_nick @g_queue";
+        print CLIENTCRAP "xdccget remained generators: @g_gen_queue";
         if ($g_timer) {
-            print CLIENTCRAP "XDCCGET DEBUG timer is set";
+            print CLIENTCRAP "XDCCGET DEBUG: timer is set";
         } else {
-            print CLIENTCRAP "XDCCGET DEBUG timer is not set";
+            print CLIENTCRAP "XDCCGET DEBUG: timer is not set";
         }
     }
 }
@@ -146,7 +152,7 @@ sub clean {
         message_stop();
         $nick = $g_nick;
         $g_nick = "";
-        print CLIENTCRAP "XDCCGET DEBUG forcing dcc transfer to stop";
+        print CLIENTCRAP "XDCCGET DEBUG: forcing dcc transfer to stop";
         $g_server->command("DCC close get $nick");
         $g_nick = $nick
     }
@@ -155,7 +161,7 @@ sub clean {
 sub transfer_after_init {
     my ($oldnick) = @_;
     if ($oldnick eq $g_nick) {
-        print CLIENTCRAP "XDCCGET DEBUG initializing for the same nick ($oldnick $g_nick). Will wait to avoid flooding";
+        print CLIENTCRAP "XDCCGET DEBUG: initializing for the same nick ($oldnick). Will wait to avoid flooding";
         process_queue();
     } else {
         transfer();
@@ -195,19 +201,38 @@ sub update_queue_by_gen {
     }
 }
 
-sub initialize_gen {
-    my ($args, $server, $witem) = @_;
-    my ($gen, $nick) = split(/\s+/, $args);
-   
+sub process_gen_queue() {
+    if ($g_gen and $g_gen_queue[0]) {
+        # wait to avoid clean() after zero-sized transfer and other crap
+        set_timer(60*1000, 'activate_new_generator');
+    } else {
+        print CLIENTCRAP "XDCCGET DEBUG: no generator to continue";
+    }
+}
+
+sub activate_new_generator {
+    print CLIENTCRAP "XDCCGET DEBUG: processing gen queue";
     $oldnick = $g_nick;
     clean();
+    $g_gen = $g_gen_queue[0];
+    shift @g_gen_queue;
+    if ($g_gen) {
+        print CLIENTCRAP "XDCCGET DEBUG: working with generator '$g_gen'";
+        update_queue_by_gen();
+        transfer_after_init($oldnick)
+    } else {
+        print CLIENTCRAP "XDCCGET DEBUG: no generator to continue";
+    }
+}
 
-    $g_gen = $gen;
+sub initialize_gen {
+    my ($args, $server, $witem) = @_;
+    @g_gen_queue = split(/\s+/, $args);
+
     $g_server = $server;
     $g_witem = $witem;
-    update_queue_by_gen();
 
-    transfer_after_init($oldnick)
+    activate_new_generator();
 }
  
 sub process_queue {
@@ -218,14 +243,10 @@ sub process_queue {
         return;
     }
     if (scalar @g_queue > 0) {
-        print CLIENTCRAP "XDCCGET DEBUG: set timeout for 'transfer'";
         set_timer(60*1000, 'transfer');
     } else {
-        print CLIENTCRAP "XDCCGET DEBUG: queue ended";
-        if ( $g_gen ) {
-            print CLIENTCRAP "XDCCGET DEBUG: clear generator";
-            $g_gen = 0;
-        }
+        print CLIENTCRAP "XDCCGET DEBUG: packs queue ended";
+        process_gen_queue();
     }
 }    
 
@@ -242,6 +263,9 @@ sub transfer {
     if (scalar @g_queue > 0) {
         message_stop();
         $g_server->command("MSG $g_nick xdcc send @g_queue[0]");
+    } else {
+        print CLIENTCRAP "XDCCGET DEBUG: empty packs queue";
+        process_gen_queue();
     }
 }
 
@@ -269,7 +293,6 @@ sub resume_hard {
 sub wait_resume_hard {
     remove_timer();
     if ($g_nick) {
-        print CLIENTCRAP "XDCCGET DEBUG: set timeout for 'resume_hard'";
         set_timer(5*60*1000, 'resume_hard');
     }
 }
