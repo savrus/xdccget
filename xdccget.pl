@@ -96,7 +96,7 @@ sub cmd_xdccget {
         shift @arg;
         initialize_queue("@arg", $server, $witem);
     }
-    if ($arg[0] eq 'gen'){
+    elsif ($arg[0] eq 'gen'){
         shift @arg;
         initialize_gen("@arg", $server, $witem);
     }
