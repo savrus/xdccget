@@ -186,6 +186,15 @@ sub initialize_queue {
     while ((@g_queue[0] <= 0) && (scalar @g_queue > 0)) {
         shift @g_queue;
     }
+    $i=0;
+    while ((@g_queue[$i] > 0)) {
+	if (@g_queue[$i] =~ /\d+-\d+/) {
+		@list=split(/-/,@g_queue[$i]);
+		splice @g_queue, $i, 1, ($list[0] .. $list[1]);
+		print CLIENTCRAP "XDCCGET DEBUG: splicing queue to add from $list[0] to $list[1]";
+	}
+    $i++;
+    }
     transfer_after_init($oldnick);
 }
 
@@ -272,6 +281,15 @@ sub transfer {
 sub add_to_queue {
     my (@args) = @_;
     push @g_queue, @args;
+    $i=0;
+    while ((@g_queue[$i] > 0)) {
+	if (@g_queue[$i] =~ /\d+-\d+/) {
+		@list=split(/-/,@g_queue[$i]);
+		splice @g_queue, $i, 1, ($list[0] .. $list[1]);
+		print CLIENTCRAP "XDCCGET DEBUG: splicing queue to add from $list[0] to $list[1]";
+	}
+    $i++;
+    }
     if ((not $g_timer) and (not $g_file)) {
         transfer();
     }
