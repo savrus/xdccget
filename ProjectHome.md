@@ -1,0 +1,1 @@
+This is a plugin for irssi IRC client to leach multiple packs from an XDCC bot
